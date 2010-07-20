@@ -10,10 +10,12 @@ def test(msg = None):
 	for avp in avps:
 		print(avp)
 		print(avp.getInteger())
-	avps = msg.findAVP(264)
-	for avp in avps:
+	avp = msg.findAVP(260)[0]
+	gavps = avp.getGroup()
+	for avp in gavps:
 		print(avp)
-		print(avp.getOctetString())
+		print(avp.getInteger())
+	reply = DiameterAnswer(msg)
 	
 
 def main():

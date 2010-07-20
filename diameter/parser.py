@@ -1,4 +1,5 @@
 from twisted.internet.protocol import Factory,Protocol
+from twisted.internet import reactor
 from twisted.python import log
 import sys, warnings
 import struct
@@ -12,6 +13,7 @@ class DiameterAVP:
 	avpVendor = 0
 	avpData = None
 	avpGroup = []
+	__groupOpen = False
 	#0x60
 	mandatoryFlag = False
 	#0x40
@@ -20,20 +22,9 @@ class DiameterAVP:
 		pass
 	
 	def __str__(self):
-		if self.mandatoryFlag:
-			mflag = "M"
-		else:
-			mflag = "."
-		
-		if self.avpVendor > 0:
-			vflag = "V"
-		else:
-			vflag = "."
-		
-		if self.protectedFlag:
-			pflag = "P"
-		else:
-			pflag = "."
+		mflag = self.mandatoryFlag and "M" or "."
+		vflag = self.avpVendor>0 and "V" or "."
+		pflag = self.protectedFlag and "P" or "."
 		return "code %d vendor %d size %d [%c%c%c]" % (self.avpCode,self.avpVendor,self.typeSize,vflag,mflag,pflag)
 
 	def setMandatory(self,t):
@@ -63,6 +54,9 @@ class DiameterAVP:
 
 	def findAVP(self,code,vendor=0):
 		retList = []
+		if self.__groupOpen == False:
+			self.getGroup()
+
 		for avp in self.avpGroup:
 			if avp.avpCode == code and avp.avpVendor == vendor:
 				retList.append(avp)
@@ -70,12 +64,15 @@ class DiameterAVP:
 
 
 	def getGroup(self):
+		if self.__groupOpen:
+			return self.avpGroup
 		i = 0
 		while i < self.typeSize:
 			avp = DiameterAVP()
 			i += avp.parseFromBuffer(self.avpData,i)
 			self.addAVP(avp)
-		
+		self.__groupOpen = True
+		return self.avpGroup
 		
 		
 	def parseFromBuffer(self,inBuf,index):
@@ -95,7 +92,7 @@ class DiameterAVP:
 
 		if flags & 0x60:
 			self.mandatoryFlag = True
-		if flags & 0x40:
+		if flags & 0x20:
 			self.protectedFlag = True
 
 		retLength  = ((self.avpSize+3)&~3)
@@ -106,7 +103,7 @@ class DiameterMessage:
 	hBh = 0
 	applicationId = 0
 	commandCode = 0
-	version = 0 
+	version = 1 
 	#0x80
 	requestFlag = False
 	#0x40
@@ -120,6 +117,9 @@ class DiameterMessage:
 	def __init__(self):
 		pass
 		
+	def getGroup(self):
+		return self.avpGroup
+
 	def findAVP(self,code,vendor=0):
 		retList = []
 		for avp in self.avpGroup:
@@ -214,7 +214,7 @@ class DiameterDecoder(Protocol):
     
 	def connectionLost(self,reason):
 		print("died..")
-	
+		reactor.stop()
 	
 class DiameterFactory(Factory):
 	protocol = DiameterDecoder
@@ -238,3 +238,13 @@ class DiameterFactory(Factory):
 	
 		
 		
+# helper functions
+def DiameterAnswer(msg):
+	reply = DiameterMessage()
+	reply.requestFlag = False
+	reply.proxiableFlag = msg.proxiableFlag
+	reply.eTe = msg.eTe
+	reply.hBh = msg.hBh
+	reply.applicationId = msg.applicationId
+	reply.commandCode = msg.commandCode
+
