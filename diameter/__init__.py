@@ -1,1 +1,1 @@
-from parser import DiameterMessage,DiameterDecoder,DiameterFactory
+from parser import DiameterMessage,DiameterProtocol,DiameterFactory

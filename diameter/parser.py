@@ -5,13 +5,14 @@ import sys, warnings
 import struct
 
 
+
 class DiameterAVP:
 	typeSize = 0
 	avpSize = 0
 	avpCode = 0
 	#0x80
 	avpVendor = 0
-	avpData = None
+	avpData = ""
 	avpGroup = []
 	__groupOpen = False
 	#0x60
@@ -34,6 +35,10 @@ class DiameterAVP:
 	def setVendorAVP(self,code,vendor=0):
 		self.avpCode = code
 		self.avpVendor = vendor
+		if vendor > 0:
+			self.avpSize = 12
+		else:
+			self.avpSize = 8
 		
 	def setInteger(self,i):
 		self.typeSize = 4
@@ -51,6 +56,8 @@ class DiameterAVP:
 
 	def addAVP(self,avp):
 		self.avpGroup.append(avp)
+		self.typeSize += avp.getFinalSize()
+		self.avpData += avp.getWire()
 
 	def findAVP(self,code,vendor=0):
 		retList = []
@@ -73,22 +80,50 @@ class DiameterAVP:
 			self.addAVP(avp)
 		self.__groupOpen = True
 		return self.avpGroup
+	
+	def getFinalSize(self):
+		return self.avpSize + self.typeSize
+
+	def getWire(self):
+		buffers = ["","","",""]
+		flags = 0
 		
+		if self.avpVendor > 0:
+			flags |= 0x80
+			buffers[1] = struct.pack("!I",self.avpVendor)
+		if self.mandatoryFlag:
+			flags |= 0x60
+		if self.protectedFlag:
+			flags |= 0x20
+			
+		fl = (flags << 24) | (self.getFinalSize())
+        
+		buffers[0] = struct.pack("!II",fl,self.avpCode)	
+		buffers[2] = self.avpData
+		
+		#put padding in place
+		length  = 4 - (self.typeSize % 4)
+		for i in range(length,0,-1):
+			buffers[3] += struct.pack("c","0")
+			
+		retVal = "".join(buffers)
+		return retVal
 		
 	def parseFromBuffer(self,inBuf,index):
 		cc,fl = struct.unpack("!II",inBuf[index:index+8])
 		self.avpCode = cc
 		flags = fl >> 24
 		length = fl & 0x000000ff
-		self.avpSize = length
 		#skip header (length) 
 		self.typeSize = length - 8
 		if flags & 0x80:
+			self.avpSize = 12
 			self.avpVendor = struct.unpack("!I",inBuf[index+8:index+12])[0]
 			self.typeSize -= 4
 			self.avpData = inBuf[index + 12:index + 12 + self.typeSize]
 		else:
 			self.avpData = inBuf[index + 8:index + 8 + self.typeSize]
+			self.avpSize = 8
 
 		if flags & 0x60:
 			self.mandatoryFlag = True
@@ -112,7 +147,7 @@ class DiameterMessage:
 	errorFlag = False
 	#0x10
 	retransmitFlag = False
-	messageLength = 0
+	messageLength = 20
 	avpGroup = []
 	def __init__(self):
 		pass
@@ -126,7 +161,27 @@ class DiameterMessage:
 			if avp.avpCode == code and avp.avpVendor == vendor:
 				retList.append(avp)
 		return retList
-				
+	
+	def getWire(self):
+		v_ml = (self.version<<24)|self.messageLength
+		flags = 0
+		if self.requestFlag:
+			flags |= 0x80
+		if self.proxiableFlag:
+			flags |= 0x40
+		if self.errorFlag:
+			flags |= 0x20
+		if self.retransmitFlag:
+			flags |= 0x10
+		f_code = (flags << 24) | self.commandCode
+		buffers = [""]
+		buffers[0] = struct.pack("!IIIII",v_ml,f_code,self.applicationId,self.hBh,self.eTe)
+		for avp in self.avpGroup:
+			buffers.append(avp.getWire())
+		
+		retVal = "".join(buffers)
+		return retVal
+		
 	def parseFromBuffer(self,inBuf):
 		v_ml,f_code,appId,hbh,ete = struct.unpack("!IIIII",inBuf[0:20])
 		self.version = v_ml >> 24;
@@ -149,19 +204,19 @@ class DiameterMessage:
 		while i < self.messageLength:
 			avp = DiameterAVP()
 			i += avp.parseFromBuffer(inBuf,i)
-			self.addAVP(avp)
+			self.avpGroup.append(avp)
 
-		
+	
 	def addAVP(self,avp):
 		self.avpGroup.append(avp)
+		self.messageLength += avp.getFinalSize()
 
-class DiameterDecoder(Protocol):
+class DiameterProtocol(Protocol):
 	incomingBuffer = ""
 	receivedHeader = False
 	incomingSize = 0
 	
 	def setup(self):
-		self.incomingBuffer = ""
 		self.receiveHeader = False
 		self.incomingSize = 0
 	
@@ -188,7 +243,7 @@ class DiameterDecoder(Protocol):
 		msg = DiameterMessage()
 		msg.parseFromBuffer(self.incomingBuffer)
 		self.incomingBuffer = self.incomingBuffer[self.incomingSize:]
-		self.factory.handleMessage(msg)
+		self.processMessage(msg)
 		self.setup()
 	
 	def processIncomingBuffer(self):
@@ -213,29 +268,14 @@ class DiameterDecoder(Protocol):
 				break
     
 	def connectionLost(self,reason):
-		print("died..")
-		reactor.stop()
+		pass
+	
+	def processMessage(self,msg):
+		pass
+	
 	
 class DiameterFactory(Factory):
-	protocol = DiameterDecoder
-	clientInitCallback = None
-	messageHandler = None
-	
-	def setClientCallback(self,d):
-		self.clientInitCallback = d
-	
-	def setMessageHandler(self,d):
-		self.messageHandler = d
-	
-	def getClientCallback(self):
-		return self.clientInitCallback
-	
-	def getServerInitCallback(self):
-		return self.serverInitCallback
-	
-	def handleMessage(self,msg):
-		self.messageHandler.callback(msg)
-	
+	protocol = DiameterProtocol	
 		
 		
 # helper functions
@@ -247,4 +287,5 @@ def DiameterAnswer(msg):
 	reply.hBh = msg.hBh
 	reply.applicationId = msg.applicationId
 	reply.commandCode = msg.commandCode
+	return reply
 
