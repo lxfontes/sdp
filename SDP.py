@@ -7,14 +7,23 @@ from diameter.parser import *
 
 class StackProtocol(DiameterProtocol):
 	def processMessage(self,msg):
-		print("recebeu cmd %d" % msg.commandCode)
-		avps = msg.findAVP(266)
-		for avp in avps:
-			print(avp)
-			print(avp.getInteger())
+#		print("got cmd %d" % msg.commandCode)
 		reply = DiameterAnswer(msg)
-		reply.addAVP(avp)
-		log.msg("replying %d" % reply.messageLength)
+		
+		if msg.commandCode == 257:
+			appId = msg.findAVP(260)[0]
+			reply.addAVP(appId)
+			originIP = msg.findAVP(257)[0]
+			log.msg("origin ip %s" % originIP.getIPV4())
+			originIP.setIPV4("192.168.1.1")
+			reply.addAVP(originIP)
+		elif msg.commandCode == 301:
+			resultCode = DiameterAVP()
+			resultCode.setVendorAVP(268)
+			resultCode.setInteger(2002)
+			reply.addAVP(resultCode)
+
+
 		buf = reply.getWire()
 		self.transport.write(buf)
 		

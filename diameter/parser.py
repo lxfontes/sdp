@@ -2,25 +2,26 @@ from twisted.internet.protocol import Factory,Protocol
 from twisted.internet import reactor
 from twisted.python import log
 import sys, warnings
+import socket
 import struct
 
 
 
 class DiameterAVP:
-	typeSize = 0
-	avpSize = 0
-	avpCode = 0
-	#0x80
-	avpVendor = 0
-	avpData = ""
-	avpGroup = []
-	__groupOpen = False
-	#0x60
-	mandatoryFlag = False
-	#0x40
-	protectedFlag = False
 	def __init__(self):
-		pass
+		self.typeSize = 0
+		self.avpSize = 0
+		self.avpCode = 0
+		#0x80
+		self.avpVendor = 0
+		self.avpData = ""
+		self.avpGroup = []
+		self.__groupOpen = False
+		#0x60
+		self.mandatoryFlag = False
+		#0x40
+		self.protectedFlag = False
+		
 	
 	def __str__(self):
 		mflag = self.mandatoryFlag and "M" or "."
@@ -54,6 +55,20 @@ class DiameterAVP:
 	def getOctetString(self):
 		return self.avpData
 
+	def getIPV4(self):
+		return socket.inet_ntop(socket.AF_INET,self.avpData[2:])
+		
+	def setIPV4(self,addr):
+		address=socket.getaddrinfo(addr, 0)
+		for a in address:
+			if a[0]==socket.AF_INET:
+				raw = socket.inet_pton(socket.AF_INET,a[4][0]);
+				self.avpData = struct.pack("!h4s",1,raw)
+				# 2 = socket type, 4 = octects for ip
+				self.typeSize = 6
+				return	    
+	    
+		
 	def addAVP(self,avp):
 		self.avpGroup.append(avp)
 		self.typeSize += avp.getFinalSize()
@@ -77,7 +92,7 @@ class DiameterAVP:
 		while i < self.typeSize:
 			avp = DiameterAVP()
 			i += avp.parseFromBuffer(self.avpData,i)
-			self.addAVP(avp)
+			self.avpGroup.append(avp)
 		self.__groupOpen = True
 		return self.avpGroup
 	
@@ -98,13 +113,13 @@ class DiameterAVP:
 			
 		fl = (flags << 24) | (self.getFinalSize())
         
-		buffers[0] = struct.pack("!II",fl,self.avpCode)	
+		buffers[0] = struct.pack("!II",self.avpCode,fl)	
 		buffers[2] = self.avpData
 		
 		#put padding in place
-		length  = 4 - (self.typeSize % 4)
+		length  = ((self.typeSize+3)&~3) - self.typeSize
 		for i in range(length,0,-1):
-			buffers[3] += struct.pack("c","0")
+			buffers[3] += struct.pack("b",0)
 			
 		retVal = "".join(buffers)
 		return retVal
@@ -113,7 +128,7 @@ class DiameterAVP:
 		cc,fl = struct.unpack("!II",inBuf[index:index+8])
 		self.avpCode = cc
 		flags = fl >> 24
-		length = fl & 0x000000ff
+		length = fl & 0x00ffffff
 		#skip header (length) 
 		self.typeSize = length - 8
 		if flags & 0x80:
@@ -130,27 +145,27 @@ class DiameterAVP:
 		if flags & 0x20:
 			self.protectedFlag = True
 
-		retLength  = ((self.avpSize+3)&~3)
+		retLength  = ((self.typeSize+3)&~3) + self.avpSize
 		return retLength
         
 class DiameterMessage:
-	eTe = 0
-	hBh = 0
-	applicationId = 0
-	commandCode = 0
-	version = 1 
-	#0x80
-	requestFlag = False
-	#0x40
-	proxiableFlag = False
-	#0x20
-	errorFlag = False
-	#0x10
-	retransmitFlag = False
-	messageLength = 20
-	avpGroup = []
 	def __init__(self):
-		pass
+		self.eTe = 0
+		self.hBh = 0
+		self.applicationId = 0
+		self.commandCode = 0
+		self.version = 1 
+		#0x80
+		self.requestFlag = False
+		#0x40
+		self.proxiableFlag = False
+		#0x20
+		self.errorFlag = False
+		#0x10
+		self.retransmitFlag = False
+		self.messageLength = 20
+		self.avpGroup = []
+
 		
 	def getGroup(self):
 		return self.avpGroup
@@ -185,7 +200,7 @@ class DiameterMessage:
 	def parseFromBuffer(self,inBuf):
 		v_ml,f_code,appId,hbh,ete = struct.unpack("!IIIII",inBuf[0:20])
 		self.version = v_ml >> 24;
-		self.messageLength =  (v_ml & 0x000000ff)		
+		self.messageLength =  (v_ml & 0x00ffffff)		
 		self.commandCode = f_code&0x00ffffff
 		self.applicationId = appId
 		self.eTe = ete
@@ -212,37 +227,39 @@ class DiameterMessage:
 		self.messageLength += avp.getFinalSize()
 
 class DiameterProtocol(Protocol):
-	incomingBuffer = ""
-	receivedHeader = False
-	incomingSize = 0
-	
-	def setup(self):
-		self.receiveHeader = False
+	def __init__(self):
+		self.incomingBuffer = ""
+		self.receivedHeader = False
 		self.incomingSize = 0
-	
+		
+	def setup(self):
+		self.receivedHeader = False
+		self.incomingBuffer = self.incomingBuffer[self.incomingSize:]			
+		self.incomingSize = 0
 	
 	#server setup
 	def connectionMade(self):
-		self.transport.write("hey\n")
+		pass
 			
 	def getHeader(self):
-		versionAndLength = struct.unpack("!I",self.incomingBuffer[0:4])[0]
+		vv = struct.unpack("c", self.incomingBuffer[:1])[0]
+
+		versionAndLength = struct.unpack("!i",self.incomingBuffer[:4])[0]
 		version = versionAndLength >> 24;
-		length =  (versionAndLength & 0x000000ff)
+		length =  (versionAndLength & 0x00ffffff)
 		# hop by hop and end to end are set already
 		#as per rfc 3588, version should be = 1
 		if version != 1:
+			log.msg("Version is set to '%d' and not to '1'" % version)
 			self.transport.loseConnection()
 			return
 		self.incomingSize = length
-		log.msg("Expecting %d bytes" % length)
 		
 	
 	
 	def getMessage(self):
 		msg = DiameterMessage()
 		msg.parseFromBuffer(self.incomingBuffer)
-		self.incomingBuffer = self.incomingBuffer[self.incomingSize:]
 		self.processMessage(msg)
 		self.setup()
 	
@@ -256,8 +273,7 @@ class DiameterProtocol(Protocol):
 				self.receivedHeader = True
 		
 		if self.receivedHeader == True and len(self.incomingBuffer) >= self.incomingSize:
-			self.getMessage()
-			self.receivedHeader = False
+			self.getMessage()			
 		return True
     
 	def dataReceived(self,data):
@@ -265,7 +281,7 @@ class DiameterProtocol(Protocol):
 		
 		while True:
 			if self.processIncomingBuffer() == False:
-				break
+				return
     
 	def connectionLost(self,reason):
 		pass
