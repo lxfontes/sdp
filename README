@@ -1,1 +1,46 @@
 twisted diameter parser
+
+right now it's possible to read and write diameter packets. Example
+
+
+class StackProtocol(DiameterProtocol):
+	def processMessage(self,msg):
+		print("got cmd %d" % msg.commandCode)
+		reply = DiameterAnswer(msg)
+		
+		if msg.commandCode == 257:
+			appId = msg.findAVP(260)[0]
+			reply.addAVP(appId)
+			originIP = msg.findAVP(257)[0]
+			log.msg("origin ip %s" % originIP.getIPV4())
+			originIP.setIPV4("192.168.1.1")
+			reply.addAVP(originIP)
+		elif msg.commandCode == 301:
+			resultCode = DiameterAVP()
+			resultCode.setVendorAVP(268)
+			resultCode.setInteger(2002)
+			reply.addAVP(resultCode)
+
+		buf = reply.getWire()
+		self.transport.write(buf)
+		
+factory = DiameterFactory()
+factory.protocol = StackProtocol
+log.startLogging(sys.stdout)
+reactor.listenTCP(3868,factory)
+reactor.run()
+
+
+
+Supported AVP Types
+- Integer ( signed / unsigned 32 )
+- Address ( IPV4 )
+- OctetStrings
+- Group
+
+TODO
+- Connection management ( automatic Capabilities-Exchange, Watchdogs, DPR )
+- Dictionary support ( xml based )
+- Peer and Realm management
+- Peer state machine
+
