@@ -4,7 +4,7 @@ right now it's possible to read and write diameter packets. Example
 
 
 class StackProtocol(DiameterProtocol):
-	def processMessage(self,msg):
+	def receiveMessage(self,msg):
 		print("got cmd %d" % msg.commandCode)
 		reply = DiameterAnswer(msg)
 		
