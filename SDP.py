@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 from twisted.internet.protocol import Factory,Protocol
-from twisted.internet import reactor,defer
+from twisted.internet import reactor,defer,threads
 from twisted.python import log
 from diameter.parser import *
 
 
 class StackProtocol(DiameterProtocol):
-	def processMessage(self,msg):
+	def receiveMessage(self,msg):
 #		print("got cmd %d" % msg.commandCode)
 		reply = DiameterAnswer(msg)
 		
@@ -14,15 +14,11 @@ class StackProtocol(DiameterProtocol):
 			appId = msg.findAVP(260)[0]
 			reply.addAVP(appId)
 			originIP = msg.findAVP(257)[0]
-			log.msg("origin ip %s" % originIP.getIPV4())
-			originIP.setIPV4("192.168.1.1")
-			reply.addAVP(originIP)
 		elif msg.commandCode == 301:
 			resultCode = DiameterAVP()
 			resultCode.setVendorAVP(268)
-			resultCode.setInteger(2002)
+			resultCode.setInteger(2001)
 			reply.addAVP(resultCode)
-
 
 		buf = reply.getWire()
 		self.transport.write(buf)

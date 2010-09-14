@@ -260,7 +260,7 @@ class DiameterProtocol(Protocol):
 	def getMessage(self):
 		msg = DiameterMessage()
 		msg.parseFromBuffer(self.incomingBuffer)
-		self.processMessage(msg)
+		self.receiveMessage(msg)
 		self.setup()
 	
 	def processIncomingBuffer(self):
@@ -286,7 +286,7 @@ class DiameterProtocol(Protocol):
 	def connectionLost(self,reason):
 		pass
 	
-	def processMessage(self,msg):
+	def receiveMessage(self,msg):
 		pass
 	
 	
