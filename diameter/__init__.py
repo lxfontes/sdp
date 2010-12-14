@@ -1,1 +1,1 @@
-from parser import DiameterMessage,DiameterProtocol,DiameterFactoryfrom dictionary import DiameterDictionary
+__author__ = "Lucas Fontes"

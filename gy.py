@@ -1,6 +1,10 @@
-twisted diameter parser
-
-right now it's possible to read and write diameter packets. Example
+#!/usr/bin/env python
+import sys
+from twisted.internet.protocol import Factory,Protocol
+from twisted.internet import reactor,defer,threads
+from twisted.python import log
+import diameter.protocol
+import diameter.dictionary
 
 class DiameterApplication:
   def handleDWR(self,msg,reply):
@@ -11,7 +15,7 @@ class DiameterApplication:
     appId = msg.findAVP('Vendor-Specific-Application-Id')[0]
     reply.addAVP(appId)
 
-    reply.addInteger32('Vendor-Id',1)
+    reply.addInteger32('Vendor-Id',11610)
     reply.addInteger32('Inband-Security-Id',0)
     reply.addInteger32('Result-Code',2001)
     reply.addOctetString('Product-Name','sdp')
@@ -57,7 +61,7 @@ class DiameterApplication:
 
         gsu = msg.getAVP('Granted-Service-Unit')
 #grant 512k
-        gsu.addInteger64('CC-Total-Octets',long(512*1024))
+        gsu.addInteger64('CC-Total-Octets',long(5*1024))
         response.addAVP(gsu)
       reply.addAVP(response)
 
@@ -91,14 +95,14 @@ class DiameterApplication:
     elif msg.command_code == 272:
       self.handleCCR(msg,reply)
 
-Supported AVP Types
-- Integer ( signed / unsigned 32 and 64 )
-- Address ( IPV4 )
-- OctetStrings
-- Group
+def main():
+  log.startLogging(sys.stdout)
+  factory = diameter.protocol.DiameterFactory(origin_host='primaryserver.sandvine.com',origin_realm='sandvine.com')
+  factory.loadDictionary(4,"3gpp_32_299_v7_70.xml.sample")
+  app = DiameterApplication()
+  factory.setApplication(app)
+  reactor.listenTCP(3868,factory)
+  reactor.run()
 
-TODO
-- Connection management ( automatic Capabilities-Exchange, Watchdogs, DPR )
-- Peer and Realm management
-- Peer state machine
-
+if __name__ == "__main__":
+	main()

@@ -1,11 +1,10 @@
 from xml.dom.minidom import parse, parseString
-from parser import DiameterAVP
 
 class DiameterAVPDef:
   def __init__(self):
-    self.mandatoryFlag = False
-    self.protectedFlag = False
-    self.vendorId = 0
+    self.mandatory_flag = False
+    self.protected_flag = False
+    self.vendor_id = 0
     self.code = 0
 
 class DiameterDictionary:
@@ -14,8 +13,8 @@ class DiameterDictionary:
     self.load()
   def load(self):
     """We only load avps for now"""
-    self.nameToDef = {}
-    self.defToName = {}
+    self.name_to_def = {}
+    self.def_to_name = {}
     
     vlist = self.dom.getElementsByTagName("vendor")
     vendors = {}
@@ -25,27 +24,19 @@ class DiameterDictionary:
     for avp in avps:
       newAVP = DiameterAVPDef()
       if avp.attributes.has_key('mandatory') and avp.attributes['mandatory'].value == "must":
-        newAVP.mandatoryFlag=True
+        newAVP.mandatory_flag=True
       if avp.attributes.has_key('protected') and avp.attributes['protected'].value == "must":
-        newAVP.mandatoryFlag=True
+        newAVP.mandatory_flag=True
       newAVP.code = int(avp.attributes['code'].value)
       if avp.attributes.has_key('vendor-id'):
-        newAVP.vendorId = vendors[avp.attributes['vendor-id'].value]
-      self.nameToDef[avp.attributes['name'].value] = newAVP
-      self.defToName[(newAVP.vendorId,newAVP.code)] = newAVP
+        newAVP.vendor_id = vendors[avp.attributes['vendor-id'].value]
+      self.name_to_def[avp.attributes['name'].value] = newAVP
+      self.def_to_name[(newAVP.vendor_id,newAVP.code)] = newAVP
 
   def getAVPCode(self,name):
-    if self.nameToDef.has_key(name):
-      df = self.nameToDef[name]
-      return (df.code,df.vendorId)
+    if self.name_to_def.has_key(name):
+      df = self.name_to_def[name]
+      return (df.code,df.vendor_id)
     else:
       return (0,0)
 
-  def getAVP(self,name):
-    avp = DiameterAVP()
-    if self.nameToDef.has_key(name):
-      df = self.nameToDef[name]
-      avp.setVendorAVP(df.code,df.vendorId)
-      avp.setMandatory(df.mandatoryFlag)
-      avp.setProtected(df.protectedFlag)
-    return avp
