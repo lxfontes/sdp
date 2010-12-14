@@ -41,11 +41,18 @@ class DiameterAVP:
     else:
       self.avpSize = 8
 
-  def setInteger(self,i):
+  def setInteger32(self,i):
     self.typeSize = 4
     self.avpData = struct.pack("!I",i)
-  def getInteger(self):
+  def getInteger32(self):
     i = struct.unpack("!I",self.avpData)[0]
+    return i
+
+  def setInteger64(self,i):
+    self.typeSize = 8
+    self.avpData = struct.pack("!Q",i)
+  def getInteger64(self):
+    i = struct.unpack("!Q",self.avpData)[0]
     return i
 
   def setOctetString(self,str):
@@ -66,7 +73,6 @@ class DiameterAVP:
         self.avpData = struct.pack("!h4s",1,raw)
         # 2 = socket type, 4 = octects for ip
         self.typeSize = 6
-        return	    
 
 
   def addAVP(self,avp):
@@ -76,6 +82,10 @@ class DiameterAVP:
 
   def findAVP(self,code,vendor=0):
     retList = []
+    if isinstance(code,tuple):
+      vendor = code[1]
+      code = code[0]
+
     if self.__groupOpen == False:
       self.getGroup()
 
@@ -159,7 +169,7 @@ class DiameterMessage:
     self.hBh = 0
     self.applicationId = 0
     self.commandCode = 0
-    self.version = 1 
+    self.version = 1
     #0x80
     self.requestFlag = False
     #0x40
@@ -177,6 +187,12 @@ class DiameterMessage:
 
   def findAVP(self,code,vendor=0):
     retList = []
+
+    if isinstance(code,tuple):
+      vendor = code[1]
+      code = code[0]
+
+
     for avp in self.avpGroup:
       if avp.avpCode == code and avp.avpVendor == vendor:
         retList.append(avp)
@@ -214,7 +230,7 @@ class DiameterMessage:
     if flags & 0x80:
       requestFlag = True
     if flags & 0x40:
-      proxiableFlag = True	
+      proxiableFlag = True
     if flags & 0x20:
       errorFloag = True
     if flags & 0x10:

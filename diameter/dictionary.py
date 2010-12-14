@@ -34,6 +34,13 @@ class DiameterDictionary:
       self.nameToDef[avp.attributes['name'].value] = newAVP
       self.defToName[(newAVP.vendorId,newAVP.code)] = newAVP
 
+  def getAVPCode(self,name):
+    if self.nameToDef.has_key(name):
+      df = self.nameToDef[name]
+      return (df.code,df.vendorId)
+    else:
+      return (0,0)
+
   def getAVP(self,name):
     avp = DiameterAVP()
     if self.nameToDef.has_key(name):
