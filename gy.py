@@ -8,10 +8,12 @@ import diameter.dictionary
 
 class DiameterApplication:
   def handleDWR(self,msg,reply):
+    log.msg("sending DWA")
     reply.addInteger32('Result-Code',2001)
 
 
   def handleCER(self,msg,reply):
+    log.msg("sending CEA")
     appId = msg.findAVP('Vendor-Specific-Application-Id')[0]
     reply.addAVP(appId)
 
@@ -46,11 +48,11 @@ class DiameterApplication:
         usu.getGroup()
         ccbytes = usu.findAVP('CC-Total-Octets')
         if len(ccbytes)>0:
-          print("Used bytes %d" % ccbytes[0].getInteger64())
+          log.msg("Used bytes %d" % ccbytes[0].getInteger64())
 
         cctime = usu.findAVP('CC-Time')
         if len(cctime)>0:
-          print("Used time %d" % cctime[0].getInteger32())
+          log.msg("Used time %d" % cctime[0].getInteger32())
 
 
 #check if we need to give back something
@@ -61,7 +63,7 @@ class DiameterApplication:
 
         gsu = msg.getAVP('Granted-Service-Unit')
 #grant 512k
-        gsu.addInteger64('CC-Total-Octets',long(5*1024))
+        gsu.addInteger64('CC-Total-Octets',long(512*1024))
         response.addAVP(gsu)
       reply.addAVP(response)
 
@@ -87,7 +89,6 @@ class DiameterApplication:
 
 
   def handle(self,msg,reply):
-    log.msg("Command %d" % msg.command_code)
     if msg.command_code == 257:
       self.handleCER(msg,reply)
     elif msg.command_code == 280:

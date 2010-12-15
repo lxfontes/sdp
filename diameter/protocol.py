@@ -335,7 +335,8 @@ class DiameterBaseProtocol(Protocol):
 
     if self.received_header == True and len(self.incoming_buffer) >= self.incoming_size:
       self.getMessage()
-    return True
+      return True
+    return False
 
   def dataReceived(self,data):
     self.incoming_buffer += data
