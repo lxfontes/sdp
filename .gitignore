@@ -1,1 +1,4 @@
 *.pyc
+gy.xml
+gx.xml
+*.cache

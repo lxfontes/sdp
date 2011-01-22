@@ -1,19 +1,17 @@
-#!/usr/bin/env python
 import sys
 from twisted.internet.protocol import Factory,Protocol
 from twisted.internet import reactor,defer,threads
 from twisted.python import log
-import diameter.protocol
-import diameter.dictionary
+from diameter import protocol,dictionary
 
 class DiameterApplication:
   def handleDWR(self,msg,reply):
-    log.msg("sending DWA")
     reply.addInteger32('Result-Code',2001)
 
 
   def handleCER(self,msg,reply):
-    log.msg("sending CEA")
+    log.msg("sending CEA to %s:%s" % (msg.findAVP('Origin-Host')[0].getOctetString(),
+                                      msg.findAVP('Origin-Realm')[0].getOctetString()) )
     appId = msg.findAVP('Vendor-Specific-Application-Id')[0]
     reply.addAVP(appId)
 
@@ -96,14 +94,10 @@ class DiameterApplication:
     elif msg.command_code == 272:
       self.handleCCR(msg,reply)
 
-def main():
-  log.startLogging(sys.stdout)
-  factory = diameter.protocol.DiameterFactory(origin_host='primaryserver.sandvine.com',origin_realm='sandvine.com')
-  factory.loadDictionary(4,"3gpp_32_299_v7_70.xml.sample")
-  app = DiameterApplication()
-  factory.setApplication(app)
-  reactor.listenTCP(3868,factory)
-  reactor.run()
+class Application(protocol.DiameterFactory):
+  def __init__(self,config,redis):
+    protocol.DiameterFactory.__init__(self,origin_host=config.server_name,origin_realm=config.server_realm)
+    self.loadDictionary(4,config.server_dictionary)
+    app = DiameterApplication()
+    self.setApplication(app)
 
-if __name__ == "__main__":
-	main()

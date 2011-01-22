@@ -1,0 +1,3 @@
+#!/bin/bash
+exec \
+twistd --pidfile=/var/tmp/gxserver.pid -n GxServerHelper $*
