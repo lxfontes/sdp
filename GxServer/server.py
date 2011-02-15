@@ -4,7 +4,20 @@ from twisted.internet import reactor,defer,threads
 from twisted.python import log
 from diameter import protocol,dictionary
 
+
+class MongoUserStore:
+  def __init__(self,mongo,dbname):
+    self.mongo = mongo
+    self.db = self.mongo[dbname]
+
+  def user_exists(self,username):
+      return False
+
+
 class DiameterApplication:
+  def __init__(self,db):
+    self.db = db
+
   def handleDWR(self,msg,reply):
     reply.addInteger32('Result-Code',2001)
 
@@ -14,6 +27,7 @@ class DiameterApplication:
                                       msg.findAVP('Origin-Realm')[0].getOctetString()) )
     appId = msg.findAVP('Vendor-Specific-Application-Id')[0]
     reply.addAVP(appId)
+    print(self.db.user_exists('zeh'))
 
     reply.addInteger32('Vendor-Id',11610)
     reply.addInteger32('Inband-Security-Id',0)
@@ -23,14 +37,15 @@ class DiameterApplication:
 
   def handleCCRI(self,msg,reply):
     reply.addInteger32('Result-Code',2001)
-
-  def handleCCRU(self,msg,reply):
-    reply.addInteger32('Result-Code',2001)
     rules = ['Gold','Shape']
     for rule in rules:
       gavp = msg.getAVP("Charging-Rule-Install")
       gavp.addOctetString("Charging-Rule-Name",rule)
       reply.addAVP(gavp)
+
+
+  def handleCCRU(self,msg,reply):
+    reply.addInteger32('Result-Code',2001)
 
   def handleCCRT(self,msg,reply):
     reply.addInteger32('Result-Code',2001)
@@ -61,9 +76,10 @@ class DiameterApplication:
       self.handleCCR(msg,reply)
 
 class Application(protocol.DiameterFactory):
-  def __init__(self,config,redis):
+  def __init__(self,config,mongo):
     protocol.DiameterFactory.__init__(self,origin_host=config.server_name,origin_realm=config.server_realm)
     self.loadDictionary(16777238,config.server_dictionary)
-    app = DiameterApplication()
+    db = MongoUserStore(mongo,config.mongo_db)
+    app = DiameterApplication(db)
     self.setApplication(app)
 

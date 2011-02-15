@@ -7,7 +7,7 @@ from twisted.application import service, internet
 from twisted.internet import protocol
 
 from GxServer import util,server
-import txredisapi
+import txmongo
 
 class Options(usage.Options):
   optParameters = [
@@ -24,11 +24,11 @@ class ServiceMaker(object):
   def makeService(self,options):
     config = util.parse_config(options['config'])
     s = service.MultiService()
-    redis = txredisapi.RedisConnectionPool(config.redis_host,
-        config.redis_port,config.redis_pool_size)
+    mongo = txmongo.lazyMongoConnectionPool(host=config.mongo_host,
+        port=config.mongo_port,pool_size=config.mongo_pool_size)
 
     i = internet.TCPServer(config.server_port,
-        server.Application(config,redis),interface=config.server_host)
+        server.Application(config,mongo),interface=config.server_host)
 
     i.setServiceParent(s)
 

@@ -8,10 +8,10 @@ CONFIG_RULES = [
       ["server","realm","get"],
       ["server","name","get"],
       ["server","dictionary","get"],
-      ["redis","host","get"],
-      ["redis","port","getint"],
-      ["redis","db","get"],
-      ["redis","pool_size","getint"],
+      ["mongo","host","get"],
+      ["mongo","port","getint"],
+      ["mongo","db","get"],
+      ["mongo","pool_size","getint"],
     ]
 
 class _O(dict):
