@@ -1,16 +1,13 @@
-from twisted.internet.protocol import Factory,Protocol
-from twisted.internet import reactor
-from twisted.python import log
 from dictionary import DiameterDictionary
 import sys, warnings
 import socket
 import struct
+import time
 
 class DiameterAVP:
-  def __init__(self,msg):
-    self.msg = msg
+  def __init__(self):
     self.type_size = 0
-    self.avp_size = 0
+    self.avp_size = 8
     self.avp_code = 0
     self.avp_vendor = 0
     self.avp_data = ""
@@ -28,10 +25,14 @@ class DiameterAVP:
 
   def setMandatory(self,t):
     self.mandatory_flag = t
+
   def setProtected(self,p):
     self.protected_flag = p
-  def setVendorAVP(self,code,vendor=0):
+
+  def setCode(self,code):
     self.avp_code = code
+
+  def setVendor(self, vendor):
     self.avp_vendor = vendor
     if vendor > 0:
       self.avp_size = 12
@@ -41,6 +42,7 @@ class DiameterAVP:
   def setInteger32(self,i):
     self.type_size = 4
     self.avp_data = struct.pack("!I",i)
+
   def getInteger32(self):
     i = struct.unpack("!I",self.avp_data)[0]
     return i
@@ -71,36 +73,21 @@ class DiameterAVP:
         # 2 = socket type, 4 = octects for ip
         self.type_size = 6
 
-  def addInteger32(self,name,value):
-    x = self.msg.getAVP(name)
-    x.setInteger32(value)
-    self.addAVP(x)
-
-  def addInteger64(self,name,value):
-    x = self.msg.getAVP(name)
-    x.setInteger64(value)
-    self.addAVP(x)
-
-  def addOctetString(self,name,value):
-    x = self.msg.getAVP(name)
-    x.setOctetString(value)
-    self.addAVP(x)
-
-  def addIPV4(self,name,value):
-    x = self.msg.getAVP(name)
-    x.setIPV4(value)
-    self.addAVP(x)
-
   def addAVP(self,avp):
     self.avp_group.append(avp)
     self.type_size += avp.getPaddedSize()
     self.avp_data += avp.getWire()
 
-  def findAVP(self,name,vendor=0):
+
+  def findFirstAVP(self, code, vendor=0):
+    r = self.findAVP(code, vendor)
+    if len(r) > 0:
+        return r[0]
+    else:
+        return None
+
+  def findAVP(self,code, vendor=0):
     retList = []
-    t = self.msg.dictionary.getAVPCode(name)
-    vendor = t[1]
-    code = t[0]
 
     if self.__groupOpen == False:
       self.getGroup()
@@ -116,7 +103,7 @@ class DiameterAVP:
       return self.avp_group
     i = 0
     while i < self.type_size:
-      avp = DiameterAVP(self.msg)
+      avp = DiameterAVP()
       i += avp.parseFromBuffer(self.avp_data,i)
       self.avp_group.append(avp)
     self.__groupOpen = True
@@ -131,7 +118,7 @@ class DiameterAVP:
     return length
 
   def getWire(self):
-    buffers = ["","","",""]
+    buffers = [r'',r'',r'',r'']
     flags = 0
 
     if self.avp_vendor > 0:
@@ -144,7 +131,7 @@ class DiameterAVP:
 
     fl = (flags << 24) | (self.getFinalSize())
 
-    buffers[0] = struct.pack("!II",self.avp_code,fl)	
+    buffers[0] = struct.pack("!II",self.avp_code,fl)
     buffers[2] = self.avp_data
 
     #put padding in place
@@ -152,7 +139,7 @@ class DiameterAVP:
     for i in range(length,0,-1):
       buffers[3] += struct.pack("b",0)
 
-    retVal = "".join(buffers)
+    retVal = r''.join(buffers)
     return retVal
 
   def parseFromBuffer(self,inBuf,index):
@@ -160,7 +147,7 @@ class DiameterAVP:
     self.avp_code = cc
     flags = fl >> 24
     length = fl & 0x00ffffff
-    #skip header (length) 
+    #skip header (length)
     self.type_size = length - 8
     if flags & 0x80:
       self.avp_size = 12
@@ -181,7 +168,6 @@ class DiameterAVP:
 
 class DiameterMessage:
   def __init__(self):
-    self.dictionary = None
     self.eTe = 0
     self.hBh = 0
     self.application_id = 0
@@ -191,30 +177,25 @@ class DiameterMessage:
     self.proxiable_flag = False
     self.error_flag = False
     self.retransmit_flag = False
+# minimum header size
     self.message_length = 20
     self.avp_group = []
 
-  def setDict(self,d):
-    self.dictionary = d
-
-  def getAVP(self,name):
-    avp = DiameterAVP(self)
-    if self.dictionary.name_to_def.has_key(name):
-      df = self.dictionary.name_to_def[name]
-      avp.setVendorAVP(df.code,df.vendor_id)
-      avp.setMandatory(df.mandatory_flag)
-      avp.setProtected(df.protected_flag)
-    return avp
+    self.retries = 0
+    self.last_try = 0
 
   def getGroup(self):
     return self.avp_group
 
-  def findAVP(self,name,vendor=0):
-    retList = []
+  def findFirstAVP(self, code, vendor=0):
+    r = self.findAVP(code, vendor)
+    if len(r) > 0:
+        return r[0]
+    else:
+        return None
 
-    t = self.dictionary.getAVPCode(name)
-    vendor = t[1]
-    code = t[0]
+  def findAVP(self, code, vendor=0):
+    retList = []
 
     for avp in self.avp_group:
       if avp.avp_code == code and avp.avp_vendor == vendor:
@@ -222,6 +203,11 @@ class DiameterMessage:
     return retList
 
   def getWire(self):
+    if self.retries > 0:
+        self.retransmit_flag = True
+    self.retries += 1
+    self.last_retry = int(time.time())
+
     v_ml = (self.version<<24)|self.message_length
     flags = 0
     if self.request_flag:
@@ -233,19 +219,24 @@ class DiameterMessage:
     if self.retransmit_flag:
       flags |= 0x10
     f_code = (flags << 24) | self.command_code
-    buffers = [""]
+    buffers = [r'']
     buffers[0] = struct.pack("!IIIII",v_ml,f_code,self.application_id,self.hBh,self.eTe)
     for avp in self.avp_group:
       buffers.append(avp.getWire())
 
-    retVal = "".join(buffers)
+    retVal = r''.join(buffers)
     return retVal
 
   def parseFromBuffer(self,inBuf):
-    v_ml,f_code,appId,hbh,ete = struct.unpack("!IIIII",inBuf[0:20])
+    v_ml = struct.unpack("!I",inBuf[0:4])[0]
+    f_code = struct.unpack("!I",inBuf[4:8])[0]
+    appId = struct.unpack("!I",inBuf[8:12])[0]
+    hbh = struct.unpack("!I",inBuf[12:16])[0]
+    ete = struct.unpack("!I",inBuf[16:20])[0]
+
     self.version = v_ml >> 24;
-    self.message_length =  (v_ml & 0x00ffffff)		
-    self.command_code = f_code&0x00ffffff
+    self.message_length =  (v_ml & 0x00ffffff)
+    self.command_code = f_code & 0x00ffffff
     self.application_id = appId
     self.eTe = ete
     self.hBh = hbh
@@ -261,139 +252,23 @@ class DiameterMessage:
     #parse the root avps
     i = 20
     while i < self.message_length:
-      avp = DiameterAVP(self)
+      avp = DiameterAVP()
       i += avp.parseFromBuffer(inBuf,i)
       self.avp_group.append(avp)
-
-  def addInteger32(self,name,value):
-    x = self.getAVP(name)
-    x.setInteger32(value)
-    self.addAVP(x)
-
-  def addInteger64(self,name,value):
-    x = self.getAVP(name)
-    x.setInteger64(value)
-    self.addAVP(x)
-
-  def addOctetString(self,name,value):
-    x = self.getAVP(name)
-    x.setOctetString(value)
-    self.addAVP(x)
-
-  def addIPV4(self,name,value):
-    x = self.getAVP(name)
-    x.setIPV4(value)
-    self.addAVP(x)
-
+    return self.message_length
 
   def addAVP(self,avp):
     self.avp_group.append(avp)
     self.message_length += avp.getPaddedSize()
 
-
-class DiameterBaseProtocol(Protocol):
-  def __init__(self):
-    self.incoming_buffer = ""
-    self.received_header = False
-    self.incoming_size = 0
-
-  def setup(self):
-    self.received_header = False
-    self.incoming_buffer = self.incoming_buffer[self.incoming_size:]
-    self.incoming_size = 0
-
-#server setup
-  def connectionMade(self):
-    pass
-
-  def getHeader(self):
-    vv = struct.unpack("c",self.incoming_buffer[:1])[0]
-
-    version_length = struct.unpack("!i",self.incoming_buffer[:4])[0]
-    version = version_length >> 24
-    length = (version_length & 0x00ffffff)
-    if version != 1:
-      log.msg("Version should be 1")
-      self.transport.loseConnection()
-      return
-    self.incoming_size = length
-    self.received_header = True
-
-  def getMessage(self):
-    msg = DiameterMessage()
-    msg.parseFromBuffer(self.incoming_buffer)
-    self.receiveMessage(msg)
-    self.setup()
-
-#20 = diameter header size
-  def processIncomingBuffer(self):
-    if len(self.incoming_buffer) < 20:
-      return False
-    else:
-      if self.received_header == False:
-        self.getHeader()
-
-    if self.received_header == True and len(self.incoming_buffer) >= self.incoming_size:
-      self.getMessage()
-      return True
-    return False
-
-  def dataReceived(self,data):
-    self.incoming_buffer += data
-
-    while True:
-      if self.processIncomingBuffer() == False:
-        return
-
-  def connectionLost(self,reason):
-    pass
-
-
-  def addOrigin(self,msg):
-    avp = msg.getAVP('Origin-Host')
-    avp.setOctetString(self.factory.settings['origin_host'])
-    msg.addAVP(avp)
-    avp = msg.getAVP('Origin-Realm')
-    avp.setOctetString(self.factory.settings['origin_realm'])
-    msg.addAVP(avp)
-
-
-  def receiveMessage(self,msg):
-    if self.factory.dictionaries.has_key(msg.application_id):
-      msg.setDict(self.factory.dictionaries[msg.application_id])
-    else:
-      msg.setDict(next(self.factory.dictionaries.itervalues()))
-    reply = DiameterAnswer(msg)
-    self.addOrigin(reply)
-    self.factory.application.handle(msg,reply)
-    buf = reply.getWire()
-    self.transport.write(buf)
-
-
-class DiameterFactory(Factory):
-  protocol = DiameterBaseProtocol
-
-  def __init__(self,**settings):
-    self.settings = settings
-    self.application = None
-    self.dictionaries = {}
-  def setApplication(self,app):
-    self.application = app
-
-  def loadDictionary(self,application_id,file_name):
-    self.dictionaries[application_id] = DiameterDictionary(file_name)
-
-
-# helper functions
-def DiameterAnswer(msg):
-  reply = DiameterMessage()
-  reply.request_flag = False
-  reply.proxiable_flag = msg.proxiable_flag
-  reply.eTe = msg.eTe
-  reply.hBh = msg.hBh
-  reply.application_id = msg.application_id
-  reply.command_code = msg.command_code
-  reply.setDict(msg.dictionary)
-  return reply
+  def createAnswer(self):
+    reply = DiameterMessage()
+    reply.request_flag = False
+    reply.proxiable_flag = self.proxiable_flag
+    reply.eTe = self.eTe
+    reply.hBh = self.hBh
+    reply.application_id = self.application_id
+    reply.command_code = self.command_code
+    return reply
 
 

@@ -1,3 +1,0 @@
-#!/bin/bash
-exec \
-twistd --pidfile=/var/tmp/gyserver.pid -n GyServerHelper $*
